@@ -1,84 +1,72 @@
-const path = require("path");
-const { spawn } = require("child_process");
+const { runScraper } = require('./utils/ScraperUtils');
 
 exports.runScrapers = async (req, res) => {
-  const { keyword, sites } = req.body;
+  const { keyword, sites, pageCount = '1', retries = '3' } = req.body;
 
+  // Validate inputs
   if (!keyword || !Array.isArray(sites) || sites.length === 0) {
     return res.status(400).json({
-      status: "error",
-      message: "Missing or invalid keyword or sites array",
+      status: 'error',
+      message: 'Missing or invalid keyword or sites array',
     });
   }
 
-  const results = {};
+  const ALLOWED_SITES = process.env.ALLOWED_SITES
+    ? process.env.ALLOWED_SITES.split(',').map((s) => s.trim())
+    : [];
 
-  const runScraper = (site) =>
-    new Promise((resolve, reject) => {
-      const safeSite = path.basename(site);
-      const isJsScraper = safeSite.includes("puppeteer");
-
-      const scraperPath = path.join(
-        __dirname,
-        "..",
-        "scrapers",
-        isJsScraper ? "js" : "python",
-        `${safeSite}_scraper.${isJsScraper ? "js" : "py"}`
-      );
-
-      const process = spawn(isJsScraper ? "node" : "python", [scraperPath, keyword]);
-
-      let output = "";
-      let error = "";
-
-      process.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-
-      process.stderr.on("data", (data) => {
-        error += data.toString();
-      });
-
-      const timeout = setTimeout(() => {
-        process.kill();
-        reject({ site, error: "Scraper timed out after 30 seconds" });
-      }, 30000);
-
-      process.on("close", (code) => {
-        clearTimeout(timeout);
-        if (code === 0) {
-          try {
-            const parsed = JSON.parse(output);
-            resolve({ site, result: parsed });
-          } catch (err) {
-            reject({ site, error: "Invalid JSON output" });
-          }
-        } else {
-          reject({ site, error: error || `Failed with code ${code}` });
-        }
-      });
+  // Validate sites
+  const invalidSites = sites.filter((site) => !ALLOWED_SITES.includes(site));
+  if (invalidSites.length > 0) {
+    return res.status(400).json({
+      status: 'error',
+      message: `Invalid sites: ${invalidSites.join(', ')}. Available sites: ${ALLOWED_SITES.join(', ')}`,
     });
+  }
+
+  // Validate numeric inputs
+  const pageCountNum = parseInt(pageCount, 10);
+  const retriesNum = parseInt(retries, 10);
+  if (isNaN(pageCountNum) || pageCountNum < 1 || isNaN(retriesNum) || retriesNum < 1) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'pageCount and retries must be positive integers',
+    });
+  }
 
   try {
-    const scraperPromises = sites.map((site) => runScraper(site));
-    const data = await Promise.allSettled(scraperPromises);
+    // Run all scrapers concurrently
+    const scraperPromises = sites.map((site) =>
+      runScraper(site, keyword, pageCountNum, retriesNum)
+        .then((result) => ({ site, status: 'success', ...result }))
+        .catch((error) => ({ site, status: 'error', error: error.message }))
+    );
 
-    data.forEach((item) => {
-      if (item.status === "fulfilled") {
-        results[item.value.site] = item.value.result;
-      } else {
-        results[item.reason.site] = { error: item.reason.error };
-      }
+    const results = await Promise.all(scraperPromises);
+
+    // Format the results
+    const formattedResults = {};
+    results.forEach((result) => {
+      formattedResults[result.site] = {
+        status: result.status,
+        ...(result.status === 'success'
+          ? {
+              file: result.file,
+              products: result.products,
+              output: result.output,
+            }
+          : { error: result.error }),
+      };
     });
 
     res.json({
-      status: "success",
-      results,
+      status: 'success',
+      results: formattedResults,
     });
   } catch (err) {
     res.status(500).json({
-      status: "error",
-      message: "Unexpected error while scraping",
+      status: 'error',
+      message: 'Unexpected error while scraping',
       error: err.message,
     });
   }

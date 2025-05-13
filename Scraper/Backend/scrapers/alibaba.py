@@ -4,7 +4,7 @@ import re
 import logging
 import os
 import random
-import argparse
+import sys
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import quote, urljoin
@@ -19,24 +19,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, WebDriverException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
-import sys
-import json
-
-def run_scraper(keyword, fields):
-    # Your scraping logic here using Selenium
-    # Assume fields are passed as a comma-separated string
-    scraped_data = {
-        "keyword": keyword,
-        "fields": fields.split(','),
-        "results": ["example result 1", "example result 2"]  # Dummy data for testing
-    }
-    return json.dumps(scraped_data)  # Return the data as JSON
-
-if __name__ == '__main__':
-    keyword = sys.argv[1]  # First argument
-    fields = sys.argv[2]  # Second argument (comma-separated fields)
-    data = run_scraper(keyword, fields)
-    print(data)  # Print the result (stdout is captured by Node.js)
 
 # Logging setup
 log_folder = Path("logs")
@@ -47,10 +29,43 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-logging.getLogger().addHandler(console_handler)
 logger = logging.getLogger(__name__)
+
+# Supported fields for user selection
+SUPPORTED_FIELDS = [
+    'url', 'title', 'currency', 'exact_price', 'description', 'min_order',
+    'supplier', 'origin', 'feedback', 'image_url', 'images', 'videos',
+    'specifications', 'website_name', 'discount_information', 'brand_name'
+]
+
+# Get command-line arguments
+if len(sys.argv) != 5:
+    print("Usage: python alibaba.py <search_keyword> <page_count> <retries> <fields>")
+    logger.error("Invalid arguments. Usage: python alibaba.py <search_keyword> <page_count> <retries> <fields>")
+    sys.exit(1)
+
+search_keyword = sys.argv[1]
+try:
+    max_pages = int(sys.argv[2])
+    retries = int(sys.argv[3])
+except ValueError:
+    print("Error: page_count and retries must be integers")
+    logger.error("page_count and retries must be integers")
+    sys.exit(1)
+
+# Parse fields (comma-separated)
+fields = sys.argv[4].split(',')
+# Always include 'url' and 'website_name' for context and deduplication
+desired_fields = ['url', 'website_name'] + [f.strip() for f in fields if f.strip() in SUPPORTED_FIELDS]
+# Validate fields
+invalid_fields = [f for f in fields if f.strip() not in SUPPORTED_FIELDS]
+if invalid_fields:
+    print(f"Error: Invalid fields: {', '.join(invalid_fields)}. Supported fields: {', '.join(SUPPORTED_FIELDS)}")
+    logger.error(f"Invalid fields: {', '.join(invalid_fields)}. Supported fields: {', '.join(SUPPORTED_FIELDS)}")
+    sys.exit(1)
+
+# Setup output file
+output_file = f"products_{search_keyword.replace(' ', '_')}_alibaba.json"
 
 class AlibabaScraper:
     def __init__(self, search_keyword: str, max_pages: int = 10, headless: bool = False, chrome_binary: Optional[str] = None, min_products: int = 100):
@@ -105,7 +120,7 @@ class AlibabaScraper:
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--log-level=3")  # Suppress non-critical ChromeDriver logs
+        chrome_options.add_argument("--log-level=3")
         chrome_options.add_argument(f"user-agent={random.choice(self.user_agents)}")
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -157,7 +172,7 @@ class AlibabaScraper:
                 cleaned_parts.append(part)
         title = " ".join(cleaned_parts)
         words = title.split()
-        common_brands = ["rolex", "omega", "tag heuer", "cartier", "patek philippe", "audemars piguet", "tissot", "seiko", "citizen"]
+        common_brands = ["louis vuitton", "gucci", "prada", "chanel", "dior", "hermes", "burberry"]
         brand_count = {brand: 0 for brand in common_brands}
         cleaned_words = []
         for word in words:
@@ -169,7 +184,7 @@ class AlibabaScraper:
                         skip = True
                         break
                     brand_count[brand] += 1
-            if not skip and word_lower not in ["watch", "timepiece", "used"]:
+            if not skip and word_lower not in ["bag", "handbag", "purse", "used"]:
                 cleaned_words.append(word)
         cleaned_title = " ".join(cleaned_words).strip()
         if self.search_keyword.lower() not in cleaned_title.lower():
@@ -325,10 +340,10 @@ class AlibabaScraper:
         """Extract brand from title."""
         try:
             title_lower = title.lower()
-            common_brands = ["rolex", "omega", "tag heuer", "cartier", "patek philippe", "audemars piguet", "tissot", "seiko", "citizen"]
+            common_brands = ["louis vuitton", "gucci", "prada", "chanel", "dior", "hermes", "burberry"]
             for brand in common_brands:
-                if re.search(r'\b' + brand + r'\b', title_lower):
-                    return brand.capitalize()
+                if re.search(r'\b' + re.escape(brand) + r'\b', title_lower):
+                    return brand.title()
             return None
         except Exception as e:
             logger.error(f"Error extracting brand: {e}")
@@ -394,23 +409,7 @@ class AlibabaScraper:
         """Detect and handle anti-bot measures."""
         try:
             self.wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, self.selectors["captcha"])))
-            logger.warning("Captcha detected!")
-            if self.headless:
-                logger.info("Switching to visible mode for captcha solving")
-                current_url = self.driver.current_url
-                self.close()
-                self._setup_driver()
-                self.driver.get(current_url)
-                self.wait = WebDriverWait(self.driver, 20)
-            print("Please solve the captcha in the browser. You have 120 seconds.")
-            start_time = time.time()
-            while time.time() - start_time < 120:
-                if not self.driver.find_elements(By.CSS_SELECTOR, self.selectors["captcha"]):
-                    logger.info("Captcha solved or no longer present")
-                    time.sleep(random.uniform(2, 4))
-                    return True
-                time.sleep(2)
-            logger.error("Captcha solving timed out")
+            logger.warning("Captcha detected! Retrying...")
             return False
         except TimeoutException:
             return True
@@ -432,8 +431,6 @@ class AlibabaScraper:
             self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
             if not self.handle_anti_bot_checks():
                 logger.error(f"Failed anti-bot checks on detail page: {url}")
-                with open(f"data/debug_detail_{title[:30]}_{timestamp}.html", "w", encoding="utf-8") as f:
-                    f.write(self.driver.page_source)
                 return detail_data
             for i in range(2):
                 self.driver.execute_script(f"window.scrollTo(0, {i * 500});")
@@ -464,8 +461,6 @@ class AlibabaScraper:
             logger.info(f"Extracted detail page data for: {title}")
         except Exception as e:
             logger.error(f"Error extracting detail page {url}: {e}")
-            with open(f"data/debug_detail_{title[:30]}_{timestamp}.html", "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
         return detail_data
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
@@ -496,8 +491,6 @@ class AlibabaScraper:
                         continue
                 if not working_selector:
                     logger.error(f"No products found on page {page}")
-                    with open(f"data/debug_page_{page}_{timestamp}.html", "w", encoding="utf-8") as f:
-                        f.write(self.driver.page_source)
                     continue
                 previous_count = 0
                 for _ in range(3):
@@ -507,13 +500,11 @@ class AlibabaScraper:
                     previous_count = len(cards)
                     self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(random.uniform(1, 2))
-                # Collect listing page data first
                 product_list = []
                 idx = 0
                 while True:
                     if len(self.scraped_data) + len(product_list) >= self.min_products:
                         break
-                    # Re-fetch cards to avoid stale elements
                     cards = self.driver.find_elements(By.CSS_SELECTOR, working_selector)
                     if idx >= len(cards):
                         break
@@ -546,7 +537,7 @@ class AlibabaScraper:
                         "images": None,
                         "videos": None,
                         "dimensions": None,
-                        "website_name": "Alibaba",
+                        "website_name": "Alibaba.com",
                         "discount_information": None,
                         "brand_name": None,
                         "specifications": {}
@@ -610,10 +601,12 @@ class AlibabaScraper:
                     product_data["brand_name"] = self.extract_brand(product_data["title"])
                     image_data = self.extract_images(card_soup, card_elem, product_data["title"])
                     product_data.update(image_data)
+                    if image_data["dimensions"]:
+                        product_data["specifications"]["Dimensions"] = image_data["dimensions"]
+                    product_data["dimensions"] = None  # Remove separate dimensions field
                     product_list.append(product_data)
                     logger.info(f"Collected listing data for product {idx + 1}/{len(cards)} on page {page}: {product_data['title']}")
                     idx += 1
-                # Process detail pages after collecting listing data
                 for product_data in product_list:
                     if len(self.scraped_data) >= self.min_products:
                         break
@@ -621,7 +614,7 @@ class AlibabaScraper:
                         detail_data = self.extract_detail_page(product_data["url"], product_data["title"])
                         product_data["description"] = detail_data["description"]
                         product_data["videos"] = detail_data["videos"]
-                        product_data["specifications"] = detail_data["specifications"]
+                        product_data["specifications"].update(detail_data["specifications"])
                         product_data["origin"] = detail_data["origin"]
                         if detail_data["images"]:
                             product_data["images"] = list(set((product_data["images"] or []) + detail_data["images"]))[:5]
@@ -643,13 +636,10 @@ class AlibabaScraper:
                             "title": product_data["title"],
                             "reason": f"Detail page error: {str(e)}"
                         })
-                    # Return to search page
                     self.driver.get(url)
                     self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
                     time.sleep(random.uniform(1, 2))
-                # Pagination
                 try:
-                    # Scroll to ensure pagination buttons are visible
                     self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                     time.sleep(1)
                     next_button = None
@@ -677,80 +667,3 @@ class AlibabaScraper:
             self.save_results()
             self.close()
         return self.scraped_data
-
-    def save_results(self) -> Optional[str]:
-        """Save scraped data to JSON files."""
-        try:
-            output_file = self.output_dir / f"{self.search_keyword.replace(' ', '_')}_products_{timestamp}.json"
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(self.scraped_data, f, ensure_ascii=False, indent=2)
-            logger.info(f"Products saved to {output_file}")
-            if self.skipped_products:
-                skipped_file = self.output_dir / f"{self.search_keyword.replace(' ', '_')}_skipped_{timestamp}.json"
-                with open(skipped_file, "w", encoding="utf-8") as f:
-                    json.dump(self.skipped_products, f, indent=2)
-                logger.info(f"Skipped products saved to {skipped_file}")
-            metadata = {
-                "search_keyword": self.search_keyword,
-                "pages_scraped": min(self.max_pages, len(self.scraped_data) // 20 + 1),
-                "timestamp": datetime.now().isoformat(),
-                "total_products": len(self.scraped_data),
-                "skipped_products": len(self.skipped_products)
-            }
-            metadata_file = self.output_dir / f"{self.search_keyword.replace(' ', '_')}_metadata_{timestamp}.json"
-            with open(metadata_file, "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2)
-            logger.info(f"Metadata saved to {metadata_file}")
-            return str(output_file)
-        except Exception as e:
-            logger.error(f"Error saving data: {e}")
-            return None
-
-    def close(self):
-        """Close the WebDriver."""
-        if self.driver:
-            try:
-                self.driver.quit()
-                logger.info("Browser closed")
-            except Exception as e:
-                logger.error(f"Error closing browser: {e}")
-            self.driver = None
-
-def main():
-    """Main function to run the scraper."""
-    parser = argparse.ArgumentParser(description="Alibaba Product Scraper")
-    parser.add_argument("--keyword", help="Search keyword", default="Rolex watches")
-    parser.add_argument("--max_pages", type=int, default=10, help="Max pages to scrape")
-    parser.add_argument("--min_products", type=int, default=100, help="Minimum number of products to scrape")
-    parser.add_argument("--headless", action="store_true", help="Run in headless mode")
-    parser.add_argument("--chrome-binary", help="Path to Chrome binary")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    args = parser.parse_args()
-    if args.verbose:
-        logger.setLevel(logging.DEBUG)
-        console_handler.setLevel(logging.DEBUG)
-    search_keyword = args.keyword or input("Enter search keyword (default: watch): ").strip() or "watch"
-    try:
-        print(f"\nStarting Alibaba scraper for '{search_keyword}'")
-        print(f"Scraping up to {args.max_pages} pages or {args.min_products} products in {'headless' if args.headless else 'visible'} mode")
-        scraper = AlibabaScraper(
-            search_keyword=search_keyword,
-            max_pages=args.max_pages,
-            headless=args.headless,
-            chrome_binary=args.chrome_binary,
-            min_products=args.min_products
-        )
-        products = scraper.scrape_products()
-        output_file = scraper.save_results()
-        print("\n===== SCRAPING SUMMARY =====")
-        print(f"Total products scraped: {len(products)}")
-        print(f"Skipped products: {len(scraper.skipped_products)}")
-        print(f"Results saved to: {output_file or 'Failed'}")
-    except Exception as e:
-        logger.error(f"Error: {e}")
-        print(f"Error: {e}")
-        if "cannot find Chrome binary" in str(e):
-            print("Ensure Chrome is installed or specify --chrome-binary")
-
-if __name__ == "__main__":
-    main()
