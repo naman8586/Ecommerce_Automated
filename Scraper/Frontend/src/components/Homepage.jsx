@@ -1,149 +1,112 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ChevronLeft, Search, AlertCircle, Loader2 } from 'lucide-react';
 
-function HomePage() {
-    const [selectedSiteKey, setSelectedSiteKey] = useState('');
-    const navigate = useNavigate();
+// Constants
+const PLATFORMS = [
+  { label: 'Amazon', value: 'amazon', icon: '🛒' },
+  { label: 'Flipkart', value: 'flipkart', icon: '🛍️' },
+  { label: 'Alibaba', value: 'alibaba', icon: '🏭' },
+  { label: 'DHgate', value: 'dhgate', icon: '📦' },
+  { label: 'IndiaMart', value: 'indiamart', icon: '🏪' },
+  { label: 'MadeInChina', value: 'madeinchina', icon: '🏭' },
+  { label: 'eBay', value: 'ebay', icon: '🛒' },
+];
 
-    const sites = [
-        { label: 'Amazon', value: 'amazon' },
-        { label: 'Flipkart', value: 'flipkart' },
-        { label: 'Alibaba', value: 'alibaba' },
-        { label: 'DHgate', value: 'dhgate' },
-        { label: 'IndiaMart', value: 'indiamart' },
-        { label: 'MadeInChina', value: 'madeinchina' },
-        { label: 'eBay', value: 'ebay' },
-    ];
+// HomePage Component
+const HomePage = () => {
+  const navigate = useNavigate();
+  const [selectedSite, setSelectedSite] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-    const handleStart = () => {
-        if (!selectedSiteKey) {
-            alert('Please select an e-commerce site');
-            return;
-        }
-        navigate('/keyword', { state: { selectedSite: selectedSiteKey } });
-    };
+  const handleSiteSelect = (siteValue) => {
+    setSelectedSite(siteValue);
+    setError('');
+  };
 
-    return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-gray-900">
-            <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-md">
-                <h1 className="text-3xl font-bold mb-6 text-center text-indigo-400">
-                    E-commerce Scraper
-                </h1>
-                <div className="mb-6">
-                    <label className="block text-sm font-medium mb-2 text-white">
-                        Select E-commerce Site
-                    </label>
-                    <select
-                        className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        value={selectedSiteKey}
-                        onChange={(e) => setSelectedSiteKey(e.target.value)}
-                    >
-                        <option value="" disabled>Select a site</option>
-                        {sites.map(site => (
-                            <option key={site.value} value={site.value}>{site.label}</option>
-                        ))}
-                    </select>
-                </div>
-                <button
-                    onClick={handleStart}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300"
-                >
-                    Start
-                </button>
-            </div>
+  const handleStart = () => {
+    if (!selectedSite) {
+      setError('Please select an e-commerce platform to continue.');
+      return;
+    }
+    setIsLoading(true);
+    setTimeout(() => {
+      setIsLoading(false);
+      navigate('/keyword', { state: { selectedSite } });
+    }, 1000);
+  };
+
+  return (
+    <div 
+      className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4"
+      style={{ backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 100%)' }}
+    >
+      <div className="bg-white/10 backdrop-blur-md rounded-3xl shadow-2xl p-8 md:p-12 w-full max-w-2xl border border-white/20">
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-r from-blue-500 to-purple-600 rounded-2xl flex items-center justify-center">
+            <Search className="w-8 h-8 text-white" aria-hidden="true" />
+          </div>
+          <h1 className="text-4xl font-bold text-white mb-2">
+            E-commerce Scraper
+          </h1>
+          <p className="text-gray-300 text-lg">
+            Extract product data from major e-commerce platforms
+          </p>
         </div>
-    );
-}
+
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/20 border border-red-500/30 rounded-xl text-red-200 flex items-center">
+            <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="mb-8">
+          <label className="block text-white text-lg font-semibold mb-4">
+            Select E-commerce Platform
+          </label>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {PLATFORMS.map((platform) => (
+              <button
+                key={platform.value}
+                onClick={() => handleSiteSelect(platform.value)}
+                className={`p-4 rounded-xl border-2 transition-all duration-200 flex items-center space-x-3 ${
+                  selectedSite === platform.value
+                    ? 'border-blue-400 bg-blue-500/20 text-white'
+                    : 'border-gray-600 bg-gray-800/50 text-gray-300 hover:border-gray-500 hover:bg-gray-700/50'
+                }`}
+                aria-pressed={selectedSite === platform.value}
+                aria-label={`Select ${platform.label} platform`}
+              >
+                <span className="text-2xl" aria-hidden="true">{platform.icon}</span>
+                <span className="font-medium">{platform.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={handleStart}
+          disabled={isLoading}
+          className="w-full py-4 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+          aria-label="Continue to keyword selection"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+              <span>Initializing...</span>
+            </>
+          ) : (
+            <>
+              <span>Continue</span>
+              <ChevronLeft className="w-5 h-5 rotate-180" aria-hidden="true" />
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 export default HomePage;
-
-
-// import React, { useState } from 'react';
-// import { useNavigate } from 'react-router-dom';
-// import axios from 'axios';
-
-// function HomePage() {
-//   const [selectedSiteKey, setSelectedSiteKey] = useState('');
-//   const [loading, setLoading] = useState(false);
-//   const navigate = useNavigate();
-
-//   const sites = [
-//     { label: 'Amazon', value: 'amazon' },
-//     { label: 'Flipkart', value: 'flipkart' },
-//     { label: 'Alibaba', value: 'alibaba' },
-//     { label: 'DHgate', value: 'dhgate' },
-//     { label: 'IndiaMart', value: 'indiamart' },
-//     { label: 'MadeInChina', value: 'madeinchina' },
-//     { label: 'eBay', value: 'ebay' },
-//   ];
-
-//   const handleStart = async () => {
-//     if (!selectedSiteKey) {
-//       alert('Please select an e-commerce site');
-//       return;
-//     }
-
-//     setLoading(true);
-//     try {
-//       // Make a request to your backend to scrape data for the selected site
-//       const response = await axios.post('http://localhost:5000/scrape', {
-//         site: selectedSiteKey,
-//         keyword: 'sample',  // You can pass a default keyword or get it from input
-//         pageCount: 5,       // Example, you can update this as needed
-//         retries: 3,         // Example, you can update this as needed
-//       });
-
-//       if (response.status === 200 && response.data.success) {
-//         // After successful scraping, navigate to the next page with the result
-//         navigate('/keyword', {
-//           state: { selectedSite: selectedSiteKey }
-//         });
-//       } else {
-//         alert('Failed to scrape from the selected site. Please try again later.');
-//       }
-//     } catch (error) {
-//       console.error('Error during scraping:', error);
-//       alert('Error during scraping. Please try again later.');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   return (
-//     <div className="min-h-screen flex items-center justify-center p-4 bg-gray-900">
-//       <div className="bg-gray-800 p-8 rounded-lg shadow-lg w-full max-w-md">
-//         <h1 className="text-3xl font-bold mb-6 text-center text-indigo-400">
-//           E-commerce Scraper
-//         </h1>
-//         <div className="mb-6">
-//           <label className="block text-sm font-medium mb-2 text-white">
-//             Select E-commerce Site
-//           </label>
-//           <select
-//             className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-//             value={selectedSiteKey}
-//             onChange={(e) => setSelectedSiteKey(e.target.value)}
-//           >
-//             <option value="" disabled>
-//               Select a site
-//             </option>
-//             {sites.map((site) => (
-//               <option key={site.value} value={site.value}>
-//                 {site.label}
-//               </option>
-//             ))}
-//           </select>
-//         </div>
-//         <button
-//           onClick={handleStart}
-//           className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg transition duration-300"
-//           disabled={loading}
-//         >
-//           {loading ? 'Connecting...' : 'Start'}
-//         </button>
-//       </div>
-//     </div>
-//   );
-// }
-
-// export default HomePage;
